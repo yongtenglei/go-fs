@@ -2,28 +2,31 @@ package client
 
 import (
 	"context"
-	"go-fs/datanode"
+	"go-fs/namenode"
 	"go-fs/pkg/converter"
 	"go-fs/pkg/util"
+	datanode_pb "go-fs/proto/datanode"
 	namenode_pb "go-fs/proto/namenode"
 	"google.golang.org/grpc"
-	"net/rpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"os"
 )
 
 func Put(nameNodeConn *grpc.ClientConn, sourceFilePath string, destFilePath string) (putStatus bool) {
+	defer nameNodeConn.Close()
+
 	nameNodeInstance := namenode_pb.NewNameNodeServiceClient(nameNodeConn)
 
 	fileSizeHandler, err := os.Stat(sourceFilePath)
-	util.Check(err)
+	if err != nil {
+		putStatus = false
+		return
+	}
 
 	// 拿到size为了给文件分片(block), 每个block会被分配到不同的data node中
 	fileSize := uint64(fileSizeHandler.Size())
 
-	fileName, err := util.FileName(destFilePath)
-	util.Check(err)
-
-	namenodeWriteRequest := &namenode_pb.WriteRequest{FileName: fileName, FileSize: fileSize}
+	namenodeWriteRequest := &namenode_pb.WriteRequest{FileName: destFilePath, FileSize: fileSize}
 
 	// namenode 的 writeData并不是真的写入, 返回的reply包含每一个文件的block应该被写入的data node 的地址
 	writeResponse, err := nameNodeInstance.WriteData(context.Background(), namenodeWriteRequest)
@@ -58,39 +61,50 @@ func Put(nameNodeConn *grpc.ClientConn, sourceFilePath string, destFilePath stri
 		remainingDataNodes := blockAddresses[1:]
 
 		// data node 此时真正的准备写入数据
-		dataNodeInstance, rpcErr := rpc.Dial("tcp", startingDataNode.Host+":"+startingDataNode.ServicePort)
+		dataNodeConn, rpcErr := grpc.Dial(
+			startingDataNode.Host+":"+startingDataNode.ServicePort,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		defer dataNodeConn.Close()
 		util.Check(rpcErr)
-		defer dataNodeInstance.Close()
 
-		request := datanode.DataNodePutRequest{
+		dataNodeInstance := datanode_pb.NewDataNodeClient(dataNodeConn)
+
+		var remainingPBDataNodes []*datanode_pb.DataNodeInstance
+
+		for _, remainingPBDataNode := range remainingDataNodes {
+			remainingPBDataNodes = append(remainingPBDataNodes, namenode.DataNodeInstance2PB(remainingPBDataNode))
+		}
+
+		request := &datanode_pb.PutRequest{
 			FilePath:         destFilePath,
 			BlockId:          blockId,
 			Data:             string(dataStagingBytes),
-			ReplicationNodes: remainingDataNodes,
+			ReplicationNodes: remainingPBDataNodes,
 		}
-		var reply datanode.DataNodeWriteStatus
 
 		// 写入数据
-		rpcErr = dataNodeInstance.Call("Service.PutData", request, &reply)
+		putResponse, err := dataNodeInstance.Put(context.Background(), request)
 		util.Check(rpcErr)
-		putStatus = true
+
+		putStatus = putResponse.Success
 	}
 	return
 }
 
 func Get(nameNodeConn *grpc.ClientConn, sourceFilePath string) (fileContents string, getStatus bool) {
+	defer nameNodeConn.Close()
+
 	nameNodeInstance := namenode_pb.NewNameNodeServiceClient(nameNodeConn)
 
-	fileName, err := util.FileName(sourceFilePath)
-	util.Check(err)
-
-	nameNodeReadRequest := &namenode_pb.ReadRequst{FileName: fileName}
+	nameNodeReadRequest := &namenode_pb.ReadRequest{FileName: sourceFilePath}
 
 	// name node 并不是真的读数据, 返回的reply包含每一个文件的block 存放在data node 的地址
 	readResponse, err := nameNodeInstance.ReadData(context.Background(), nameNodeReadRequest)
-	util.Check(err)
-
-	fileContents = ""
+	if err != nil {
+		getStatus = false
+		return
+	}
 
 	for _, pbMetaData := range readResponse.NameNodeMetaDataList {
 		metaData := converter.Pb2NameNodeMetaData(pbMetaData)
@@ -103,23 +117,26 @@ func Get(nameNodeConn *grpc.ClientConn, sourceFilePath string) (fileContents str
 		// 每一个block, 都被备份了x次, 但只需要拿一次.
 		for _, selectedDataNode := range blockAddresses {
 			// data node 此时真正的准备读数据
-			dataNodeInstance, rpcErr := rpc.Dial("tcp", selectedDataNode.Host+":"+selectedDataNode.ServicePort)
+			dataNodeConn, rpcErr := grpc.Dial(
+				selectedDataNode.Host+":"+selectedDataNode.ServicePort,
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			)
+			defer dataNodeConn.Close()
+			util.Check(rpcErr)
+
+			dataNodeInstance := datanode_pb.NewDataNodeClient(dataNodeConn)
+
+			request := &datanode_pb.GetRequest{
+				FilePath: sourceFilePath,
+			}
+
+			// 读数据
+			getResponse, rpcErr := dataNodeInstance.Get(context.Background(), request)
 			if rpcErr != nil {
 				continue
 			}
-
-			defer dataNodeInstance.Close()
-
-			request := datanode.DataNodeGetRequest{
-				FilePath: sourceFilePath,
-			}
-			var reply datanode.DataNodeData
-
-			// 读数据
-			rpcErr = dataNodeInstance.Call("Service.GetData", request, &reply)
-			util.Check(rpcErr)
 			// 追加内容
-			fileContents += reply.Data
+			fileContents += getResponse.Data
 			// 读取成功后, 将标志位置为true, 此block不再获取
 			blockFetchStatus = true
 			break

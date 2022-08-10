@@ -1,8 +1,11 @@
 package datanode
 
 import (
+	"context"
 	"go-fs/pkg/util"
+	datanode_pb "go-fs/proto/datanode"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -25,19 +28,20 @@ func TestDataNodeServiceWriteFile(t *testing.T) {
 	testDataNodeService := new(Service)
 	testDataNodeService.DataDirectory = "./workdir/"
 	testDataNodeService.ServicePort = 8000
-
-	putRequestPayload := DataNodePutRequest{
+	putRequestPayload := &datanode_pb.PutRequest{
 		FilePath:         "./fileWithoutDir.txt",
 		BlockId:          "1",
 		Data:             "Hello world",
 		ReplicationNodes: nil,
 	}
 
-	var replyPayload DataNodeWriteStatus
-	testDataNodeService.PutData(&putRequestPayload, &replyPayload)
+	putResponse, err := testDataNodeService.Put(context.Background(), putRequestPayload)
+	if err != nil {
+		t.Error("Put Data filed")
+	}
 
-	if !replyPayload.Status {
-		t.Errorf("Unable to write data correctly; Expected: %t, found: %t", true, replyPayload.Status)
+	if !putResponse.Success {
+		t.Errorf("Unable to write data correctly; Expected: %t, found: %t", true, putResponse.Success)
 	}
 
 	// clean up
@@ -62,18 +66,20 @@ func TestDataNodeServiceWriteFileWithDirPaths(t *testing.T) {
 	testDataNodeService.DataDirectory = "./workdir/"
 	testDataNodeService.ServicePort = 8000
 
-	putRequestPayload := DataNodePutRequest{
+	putRequestPayload := &datanode_pb.PutRequest{
 		FilePath:         "testfolder/testfolder2/fileWithDir.txt",
 		BlockId:          "1",
 		Data:             "Hello world",
 		ReplicationNodes: nil,
 	}
 
-	var replyPayload DataNodeWriteStatus
-	testDataNodeService.PutData(&putRequestPayload, &replyPayload)
+	putResponse, err := testDataNodeService.Put(context.Background(), putRequestPayload)
+	if err != nil {
+		t.Error("Put Data filed")
+	}
 
-	if !replyPayload.Status {
-		t.Errorf("Unable to write data correctly; Expected: %t, found: %t", true, replyPayload.Status)
+	if !putResponse.Success {
+		t.Errorf("Unable to write data correctly; Expected: %t, found: %t", true, putResponse.Success)
 	}
 
 	// clean up
@@ -92,17 +98,43 @@ func TestDataNodeServiceWriteFileWithDirPaths(t *testing.T) {
 	}
 }
 
-// Test reading data within DataNode
-//func TestDataNodeServiceRead(t *testing.T) {
-//testDataNodeService := new(Service)
-//testDataNodeService.DataDirectory = "./"
-//testDataNodeService.ServicePort = 8000
+//Test reading data within DataNode
+func TestDataNodeServiceRead(t *testing.T) {
+	testDataNodeService := new(Service)
+	testDataNodeService.DataDirectory = "./workdir/"
+	testDataNodeService.ServicePort = 8000
+	putRequestPayload := &datanode_pb.PutRequest{
+		FilePath:         "./fileWithoutDir.txt",
+		BlockId:          "1",
+		Data:             "Hello world",
+		ReplicationNodes: nil,
+	}
 
-//getRequestPayload := DataNodeGetRequest{BlockId: "1"}
-//var replyPayload DataNodeData
-//testDataNodeService.GetData(&getRequestPayload, &replyPayload)
+	testDataNodeService.Put(context.Background(), putRequestPayload)
 
-//if strings.Compare(replyPayload.Data, "Hello world") != 0 {
-//t.Errorf("Unable to read data correctly; Expected: %s, found: %s.", "Hello world", replyPayload.Data)
-//}
-//}
+	getRequestPayload := &datanode_pb.GetRequest{FilePath: "./fileWithoutDir.txt"}
+
+	getResponse, err := testDataNodeService.Get(context.Background(), getRequestPayload)
+	if err != nil {
+		t.Error("Get Data filed")
+	}
+
+	if strings.Compare(getResponse.Data, "Hello world") != 0 {
+		t.Errorf("Unable to read data correctly; Expected: %s, found: %s.", "Hello world", getResponse.Data)
+	}
+
+	// clean up
+	filePathExist, err := util.PathExist("./workdir/fileWithoutDir.txt")
+	if err != nil {
+		t.Error("Unexpected Error")
+	}
+
+	if !filePathExist {
+		t.Error("Unable to write data correctly; No file putted")
+	}
+
+	err = os.RemoveAll("./workdir")
+	if err != nil {
+		t.Errorf("Unexpected Error! Please Clean up the test risidual file manually")
+	}
+}

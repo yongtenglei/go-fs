@@ -2,14 +2,16 @@ package namenode
 
 import (
 	"context"
-	"go-fs/datanode"
 	"go-fs/pkg/e"
 	"go-fs/pkg/util"
+	datanode_pb "go-fs/proto/datanode"
 	namenode_pb "go-fs/proto/namenode"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"log"
 	"math"
 	"math/rand"
-	"net/rpc"
+
 	"strings"
 
 	"github.com/google/uuid"
@@ -89,8 +91,8 @@ func (nn *Service) GetBlockSize(ctx context.Context, req *namenode_pb.GetBlockSi
 	return &res, nil
 }
 
-func DataNodeInstance2PB(dni util.DataNodeInstance) *namenode_pb.DataNodeInstance {
-	dataNodeInstance := &namenode_pb.DataNodeInstance{
+func DataNodeInstance2PB(dni util.DataNodeInstance) *datanode_pb.DataNodeInstance {
+	dataNodeInstance := &datanode_pb.DataNodeInstance{
 		Host:        dni.Host,
 		ServicePort: dni.ServicePort,
 	}
@@ -99,7 +101,7 @@ func DataNodeInstance2PB(dni util.DataNodeInstance) *namenode_pb.DataNodeInstanc
 }
 
 func NameNodeMetaData2PB(nnmd NameNodeMetaData) *namenode_pb.NameNodeMetaData {
-	var blockAddresses []*namenode_pb.DataNodeInstance
+	var blockAddresses []*datanode_pb.DataNodeInstance
 	for _, dni := range nnmd.BlockAddresses {
 		blockAddresses = append(blockAddresses, DataNodeInstance2PB(dni))
 	}
@@ -112,12 +114,12 @@ func NameNodeMetaData2PB(nnmd NameNodeMetaData) *namenode_pb.NameNodeMetaData {
 }
 
 // ReadData 返回metadata, 包含该文件每一个block的id与data node的地址
-func (nn *Service) ReadData(ctx context.Context, req *namenode_pb.ReadRequst) (*namenode_pb.ReadResponse, error) {
+func (nn *Service) ReadData(ctx context.Context, req *namenode_pb.ReadRequest) (*namenode_pb.ReadResponse, error) {
 	var res namenode_pb.ReadResponse
 
 	_, ok := nn.FileNameToBlocks[req.FileName]
 	if !ok {
-		return nil, e.FileDoesNotExist
+		return nil, e.ErrFileDoesNotExist
 	}
 	fileBlocks := nn.FileNameToBlocks[req.FileName]
 
@@ -197,7 +199,7 @@ func (nameNode *Service) assignDataNodes(blockId string, dataNodesAvailable []ui
 	return targetDataNodeIds
 }
 
-func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest, reply *bool) error {
+func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) error {
 	log.Printf("DataNode %s is dead, trying to redistribute data\n", request.DataNodeUri)
 	deadDataNodeSlice := strings.Split(request.DataNodeUri, ":")
 	var deadDataNodeId uint64
@@ -245,12 +247,16 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest, repl
 
 		// fetch the data from the healthy DataNode
 		healthyDataNode := nameNode.IdToDataNodes[blockToReplicate.HealthyDataNodeId]
-		dataNodeInstance, rpcErr := rpc.Dial("tcp", healthyDataNode.Host+":"+healthyDataNode.ServicePort)
+		dataNodeConn, rpcErr := grpc.Dial(
+			healthyDataNode.Host+":"+healthyDataNode.ServicePort,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		defer dataNodeConn.Close()
 		if rpcErr != nil {
 			continue
 		}
 
-		defer dataNodeInstance.Close()
+		dataNodeInstance := datanode_pb.NewDataNodeClient(dataNodeConn)
 
 		// 找到要迁移的block的文件路径
 		var filePath string
@@ -266,21 +272,22 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest, repl
 			}
 
 			if foundFilePath {
+				log.Println("filename2blocks: ", nameNode.FileNameToBlocks)
+				log.Println("foundFilePath: ", filePath)
 				break
 			} else {
 				log.Println("Cannot found filePath for a UnderReplicatedBlock, reDistributeData failed")
 			}
 		}
 
-		getRequest := datanode.DataNodeGetRequest{
+		getRequest := &datanode_pb.GetRequest{
 			//BlockId: blockToReplicate.BlockId,
 			FilePath: filePath,
 		}
-		var getReply datanode.DataNodeData
 
-		rpcErr = dataNodeInstance.Call("Service.GetData", getRequest, &getReply)
+		getResponse, rpcErr := dataNodeInstance.Get(context.Background(), getRequest)
 		util.Check(rpcErr)
-		blockContents := getReply.Data
+		blockContents := getResponse.Data
 
 		// initiate the replication of the block contents
 		targetDataNodeIds := nameNode.assignDataNodes(blockToReplicate.BlockId, availableNodes, nameNode.ReplicationFactor)
@@ -291,19 +298,33 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest, repl
 		startingDataNode := blockAddresses[0]
 		remainingDataNodes := blockAddresses[1:]
 
-		targetDataNodeInstance, rpcErr := rpc.Dial("tcp", startingDataNode.Host+":"+startingDataNode.ServicePort)
+		targetDataNodeConn, rpcErr := grpc.Dial(
+			startingDataNode.Host+":"+startingDataNode.ServicePort,
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+		defer targetDataNodeConn.Close()
 		util.Check(rpcErr)
-		defer targetDataNodeInstance.Close()
 
-		putRequest := datanode.DataNodePutRequest{
-			BlockId:          blockToReplicate.BlockId,
-			Data:             blockContents,
-			ReplicationNodes: remainingDataNodes,
+		targetDataNodeInstance := datanode_pb.NewDataNodeClient(targetDataNodeConn)
+
+		var remainingPBDataNodes []*datanode_pb.DataNodeInstance
+		for _, remainingPBDataNode := range remainingDataNodes {
+			remainingPBDataNodes = append(remainingPBDataNodes, DataNodeInstance2PB(remainingPBDataNode))
 		}
-		var putReply datanode.DataNodeWriteStatus
 
-		rpcErr = targetDataNodeInstance.Call("Service.PutData", putRequest, &putReply)
+		putRequest := &datanode_pb.PutRequest{
+			FilePath:         filePath,
+			Data:             blockContents,
+			ReplicationNodes: remainingPBDataNodes,
+		}
+
+		putResponse, rpcErr := targetDataNodeInstance.Put(context.Background(), putRequest)
 		util.Check(rpcErr)
+
+		// TODO: 不成功需要有一定措施
+		if !putResponse.Success {
+			log.Printf("Block %s replication completed for %+v filied\n", blockToReplicate.BlockId, targetDataNodeIds)
+		}
 
 		log.Printf("Block %s replication completed for %+v\n", blockToReplicate.BlockId, targetDataNodeIds)
 	}

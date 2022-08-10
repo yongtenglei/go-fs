@@ -1,22 +1,25 @@
 syntax = "proto3";
+import "proto/datanode/datanode.proto";
 
-package namenode_;
+package namenode;
 option go_package = 	"go-fs/proto/namenode";
+
+
 
 service NameNodeService {
   rpc GetBlockSize(GetBlockSizeRequest) returns (GetBlockSizeResponse);
-  rpc ReadData(ReadRequst) returns (ReadResponse);
+  rpc ReadData(ReadRequest) returns (ReadResponse);
   rpc WriteData(WriteRequest) returns (WriteResponse);
 }
 
-message DataNodeInstance {
-	string host = 1;
-	string servicePort = 2;
-}
+//message DataNodeInstance {
+//	string host = 1;
+//	string servicePort = 2;
+//}
 
 message NameNodeMetaData{
 	string blockId = 1;
-	repeated DataNodeInstance blockAddresses = 2;
+	repeated datanode.DataNodeInstance blockAddresses = 2;
 }
 
 message GetBlockSizeRequest {
@@ -27,7 +30,7 @@ message GetBlockSizeResponse {
   uint64 blockSize = 1;
 }
 
-message ReadRequst {
+message ReadRequest {
 	string fileName = 1;
 }
 

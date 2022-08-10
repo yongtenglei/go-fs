@@ -68,9 +68,11 @@ func main() {
 			}
 			contents, status := client.GetHandler(*clientNameNodePortPtr, *clientSourceFilePathPtr)
 			log.Printf("Get status: %t\n", status)
-			if status {
-				log.Println(contents)
+			if !status {
+				log.Println("Please check remote file path")
+				return
 			}
+			log.Println(contents)
 			fileWriteHandler, err := os.Create(*clientDestFilePathPtr)
 			util.Check(err)
 			defer fileWriteHandler.Close()
