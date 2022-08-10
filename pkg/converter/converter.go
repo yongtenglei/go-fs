@@ -3,10 +3,11 @@ package converter
 import (
 	"go-fs/namenode"
 	"go-fs/pkg/util"
+	datanode_pb "go-fs/proto/datanode"
 	namenode_pb "go-fs/proto/namenode"
 )
 
-func Pb2DataNodeInstance(dni *namenode_pb.DataNodeInstance) util.DataNodeInstance {
+func Pb2DataNodeInstance(dni *datanode_pb.DataNodeInstance) util.DataNodeInstance {
 	dataNodeInstance := util.DataNodeInstance{
 		Host:        dni.Host,
 		ServicePort: dni.ServicePort,

@@ -50,12 +50,3 @@ func PathExist(path string) (bool, error) {
 	}
 	return false, err //如果有错误了，但是不是不存在的错误，所以把这个错误原封不动的返回
 }
-
-func FileName(path string) (string, error) {
-	fileinfo, err := os.Stat(path)
-	if err != nil {
-		return "", err
-	}
-
-	return fileinfo.Name(), nil
-}

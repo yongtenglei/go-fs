@@ -2,12 +2,18 @@ package datanode
 
 import (
 	"errors"
+	"fmt"
 	"go-fs/datanode"
-	"go-fs/pkg/util"
+	datanode_pb "go-fs/proto/datanode"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/health/grpc_health_v1"
 	"log"
 	"net"
-	"net/rpc"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 )
 
 func InitializeDataNodeUtil(serverPort int, dataLocation string) {
@@ -17,10 +23,10 @@ func InitializeDataNodeUtil(serverPort int, dataLocation string) {
 
 	log.Printf("Data storage location is %s\n", dataLocation)
 
-	err := rpc.Register(dataNodeInstance)
-	util.Check(err)
+	server := grpc.NewServer()
+	datanode_pb.RegisterDataNodeServer(server, dataNodeInstance)
 
-	rpc.HandleHTTP()
+	grpc_health_v1.RegisterHealthServer(server, health.NewServer())
 
 	// 创建监听器, 如果端口被占用, 则端口号+1, 直至找到空闲端口
 	var listener net.Listener
@@ -33,7 +39,20 @@ func InitializeDataNodeUtil(serverPort int, dataLocation string) {
 	log.Printf("DataNode port is %d\n", serverPort-1)
 	defer listener.Close()
 
-	rpc.Accept(listener)
+	go func() {
+		if err := server.Serve(listener); err != nil {
+			log.Printf(fmt.Sprintf("Server Serve failed in %s", ":"+strconv.Itoa(serverPort)), "err", err.Error())
+			panic(err)
+		}
+	}()
 
-	log.Println("DataNode daemon started on port: " + strconv.Itoa(serverPort))
+	log.Println("DataNode daemon started on port: " + strconv.Itoa(serverPort-1))
+
+	// graceful shutdown
+	sig := make(chan os.Signal)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGKILL)
+
+	<-sig
+
+	server.GracefulStop()
 }

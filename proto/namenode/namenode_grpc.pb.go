@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.2.0
 // - protoc             v3.21.4
-// source: namenode.proto
+// source: proto/namenode/namenode.proto
 
 package namenode
 
@@ -23,7 +23,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type NameNodeServiceClient interface {
 	GetBlockSize(ctx context.Context, in *GetBlockSizeRequest, opts ...grpc.CallOption) (*GetBlockSizeResponse, error)
-	ReadData(ctx context.Context, in *ReadRequst, opts ...grpc.CallOption) (*ReadResponse, error)
+	ReadData(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadResponse, error)
 	WriteData(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*WriteResponse, error)
 }
 
@@ -37,16 +37,16 @@ func NewNameNodeServiceClient(cc grpc.ClientConnInterface) NameNodeServiceClient
 
 func (c *nameNodeServiceClient) GetBlockSize(ctx context.Context, in *GetBlockSizeRequest, opts ...grpc.CallOption) (*GetBlockSizeResponse, error) {
 	out := new(GetBlockSizeResponse)
-	err := c.cc.Invoke(ctx, "/namenode_.NameNodeService/GetBlockSize", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/namenode.NameNodeService/GetBlockSize", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *nameNodeServiceClient) ReadData(ctx context.Context, in *ReadRequst, opts ...grpc.CallOption) (*ReadResponse, error) {
+func (c *nameNodeServiceClient) ReadData(ctx context.Context, in *ReadRequest, opts ...grpc.CallOption) (*ReadResponse, error) {
 	out := new(ReadResponse)
-	err := c.cc.Invoke(ctx, "/namenode_.NameNodeService/ReadData", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/namenode.NameNodeService/ReadData", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func (c *nameNodeServiceClient) ReadData(ctx context.Context, in *ReadRequst, op
 
 func (c *nameNodeServiceClient) WriteData(ctx context.Context, in *WriteRequest, opts ...grpc.CallOption) (*WriteResponse, error) {
 	out := new(WriteResponse)
-	err := c.cc.Invoke(ctx, "/namenode_.NameNodeService/WriteData", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/namenode.NameNodeService/WriteData", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (c *nameNodeServiceClient) WriteData(ctx context.Context, in *WriteRequest,
 // for forward compatibility
 type NameNodeServiceServer interface {
 	GetBlockSize(context.Context, *GetBlockSizeRequest) (*GetBlockSizeResponse, error)
-	ReadData(context.Context, *ReadRequst) (*ReadResponse, error)
+	ReadData(context.Context, *ReadRequest) (*ReadResponse, error)
 	WriteData(context.Context, *WriteRequest) (*WriteResponse, error)
 	mustEmbedUnimplementedNameNodeServiceServer()
 }
@@ -79,7 +79,7 @@ type UnimplementedNameNodeServiceServer struct {
 func (UnimplementedNameNodeServiceServer) GetBlockSize(context.Context, *GetBlockSizeRequest) (*GetBlockSizeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlockSize not implemented")
 }
-func (UnimplementedNameNodeServiceServer) ReadData(context.Context, *ReadRequst) (*ReadResponse, error) {
+func (UnimplementedNameNodeServiceServer) ReadData(context.Context, *ReadRequest) (*ReadResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReadData not implemented")
 }
 func (UnimplementedNameNodeServiceServer) WriteData(context.Context, *WriteRequest) (*WriteResponse, error) {
@@ -108,7 +108,7 @@ func _NameNodeService_GetBlockSize_Handler(srv interface{}, ctx context.Context,
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/namenode_.NameNodeService/GetBlockSize",
+		FullMethod: "/namenode.NameNodeService/GetBlockSize",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NameNodeServiceServer).GetBlockSize(ctx, req.(*GetBlockSizeRequest))
@@ -117,7 +117,7 @@ func _NameNodeService_GetBlockSize_Handler(srv interface{}, ctx context.Context,
 }
 
 func _NameNodeService_ReadData_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ReadRequst)
+	in := new(ReadRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -126,10 +126,10 @@ func _NameNodeService_ReadData_Handler(srv interface{}, ctx context.Context, dec
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/namenode_.NameNodeService/ReadData",
+		FullMethod: "/namenode.NameNodeService/ReadData",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(NameNodeServiceServer).ReadData(ctx, req.(*ReadRequst))
+		return srv.(NameNodeServiceServer).ReadData(ctx, req.(*ReadRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -144,7 +144,7 @@ func _NameNodeService_WriteData_Handler(srv interface{}, ctx context.Context, de
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/namenode_.NameNodeService/WriteData",
+		FullMethod: "/namenode.NameNodeService/WriteData",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(NameNodeServiceServer).WriteData(ctx, req.(*WriteRequest))
@@ -156,7 +156,7 @@ func _NameNodeService_WriteData_Handler(srv interface{}, ctx context.Context, de
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var NameNodeService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "namenode_.NameNodeService",
+	ServiceName: "namenode.NameNodeService",
 	HandlerType: (*NameNodeServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -173,5 +173,5 @@ var NameNodeService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "namenode.proto",
+	Metadata: "proto/namenode/namenode.proto",
 }
