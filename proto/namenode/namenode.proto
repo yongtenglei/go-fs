@@ -10,6 +10,7 @@ service NameNodeService {
   rpc GetBlockSize(GetBlockSizeRequest) returns (GetBlockSizeResponse);
   rpc ReadData(ReadRequest) returns (ReadResponse);
   rpc WriteData(WriteRequest) returns (WriteResponse);
+//  rpc Stat(StatRequest) returns (StatResponse);
 }
 
 //message DataNodeInstance {

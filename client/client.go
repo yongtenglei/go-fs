@@ -9,6 +9,7 @@ import (
 	namenode_pb "go-fs/proto/namenode"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"log"
 	"os"
 )
 
@@ -82,7 +83,9 @@ func Put(nameNodeConn *grpc.ClientConn, sourceFilePath string, destFilePath stri
 			Data:             string(dataStagingBytes),
 			ReplicationNodes: remainingPBDataNodes,
 		}
-
+		log.Println("+++++++++++++++++++++++++++++")
+		log.Println("blockid: ", blockId)
+		log.Println("+++++++++++++++++++++++++++++")
 		// 写入数据
 		putResponse, err := dataNodeInstance.Put(context.Background(), request)
 		util.Check(rpcErr)
@@ -128,6 +131,7 @@ func Get(nameNodeConn *grpc.ClientConn, sourceFilePath string) (fileContents str
 
 			request := &datanode_pb.GetRequest{
 				FilePath: sourceFilePath,
+				BlockId:  metaData.BlockId,
 			}
 
 			// 读数据
@@ -152,4 +156,8 @@ func Get(nameNodeConn *grpc.ClientConn, sourceFilePath string) (fileContents str
 	// 所有block被拿到, 返回文件成功get到
 	getStatus = true
 	return
+}
+
+func Stat(nameNodeConn *grpc.ClientConn, destFilePath string) (stats string, statStatus bool) {
+	return "", true
 }

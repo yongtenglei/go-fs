@@ -45,7 +45,7 @@ func TestDataNodeServiceWriteFile(t *testing.T) {
 	}
 
 	// clean up
-	filePathExist, err := util.PathExist("./workdir/fileWithoutDir.txt")
+	filePathExist, err := util.PathExist("./workdir/fileWithoutDir1.txt")
 	if err != nil {
 		t.Error("Unexpected Error")
 	}
@@ -83,7 +83,7 @@ func TestDataNodeServiceWriteFileWithDirPaths(t *testing.T) {
 	}
 
 	// clean up
-	filePathExist, err := util.PathExist("./workdir/testfolder/testfolder2/fileWithDir.txt")
+	filePathExist, err := util.PathExist("./workdir/testfolder/testfolder2/fileWithDir1.txt")
 	if err != nil {
 		t.Error("Unexpected Error")
 	}
@@ -112,7 +112,7 @@ func TestDataNodeServiceRead(t *testing.T) {
 
 	testDataNodeService.Put(context.Background(), putRequestPayload)
 
-	getRequestPayload := &datanode_pb.GetRequest{FilePath: "./fileWithoutDir.txt"}
+	getRequestPayload := &datanode_pb.GetRequest{FilePath: "/fileWithoutDir.txt", BlockId: "1"}
 
 	getResponse, err := testDataNodeService.Get(context.Background(), getRequestPayload)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestDataNodeServiceRead(t *testing.T) {
 	}
 
 	// clean up
-	filePathExist, err := util.PathExist("./workdir/fileWithoutDir.txt")
+	filePathExist, err := util.PathExist("./workdir/fileWithoutDir1.txt")
 	if err != nil {
 		t.Error("Unexpected Error")
 	}
