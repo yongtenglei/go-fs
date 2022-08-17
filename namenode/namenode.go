@@ -37,7 +37,7 @@ type ReDistributeDataRequest struct {
 
 type UnderReplicatedBlocks struct {
 	BlockId           string
-	HealthyDataNodeId uint64
+	HealthyDataNodeId string
 }
 
 type Service struct {
@@ -46,9 +46,9 @@ type Service struct {
 	Port               uint16
 	BlockSize          uint64
 	ReplicationFactor  uint64
-	IdToDataNodes      map[uint64]util.DataNodeInstance
+	IdToDataNodes      map[string]util.DataNodeInstance
 	FileNameToBlocks   map[string][]string
-	BlockToDataNodeIds map[string][]uint64
+	BlockToDataNodeIds map[string][]string
 }
 
 func NewService(blockSize uint64, replicationFactor uint64, serverPort uint16) *Service {
@@ -57,15 +57,15 @@ func NewService(blockSize uint64, replicationFactor uint64, serverPort uint16) *
 		BlockSize:          blockSize,
 		ReplicationFactor:  replicationFactor,
 		FileNameToBlocks:   make(map[string][]string),
-		IdToDataNodes:      make(map[uint64]util.DataNodeInstance),
-		BlockToDataNodeIds: make(map[string][]uint64),
+		IdToDataNodes:      make(map[string]util.DataNodeInstance),
+		BlockToDataNodeIds: make(map[string][]string),
 	}
 }
 
 // selectRandomDataNodes
-func selectRandomDataNodes(availableDataNodes []uint64, replicationFactor uint64) (randomSeletctedDataNodes []uint64) {
+func selectRandomDataNodes(availableDataNodes []string, replicationFactor uint64) (randomSeletctedDataNodes []string) {
 	//已经被选的 data node, 不应该在被选择
-	dataNodePresentMap := make(map[uint64]struct{})
+	dataNodePresentMap := make(map[string]struct{})
 	//随机选择备份的data node
 	for i := uint64(0); i < replicationFactor; {
 		chosenItem := availableDataNodes[rand.Intn(len(availableDataNodes))]
@@ -158,7 +158,7 @@ func (nameNode *Service) allocateBlocks(fileName string, numberOfBlocks uint64) 
 	nameNode.FileNameToBlocks[fileName] = []string{}
 
 	// 获取所有 data nodes 的id
-	var dataNodesAvailable []uint64
+	var dataNodesAvailable []string
 	for k, _ := range nameNode.IdToDataNodes {
 		dataNodesAvailable = append(dataNodesAvailable, k)
 	}
@@ -192,7 +192,7 @@ func (nameNode *Service) allocateBlocks(fileName string, numberOfBlocks uint64) 
 	return
 }
 
-func (nameNode *Service) assignDataNodes(blockId string, dataNodesAvailable []uint64, replicationFactor uint64) []uint64 {
+func (nameNode *Service) assignDataNodes(blockId string, dataNodesAvailable []string, replicationFactor uint64) []string {
 	// 随机选择block备份的data nodes
 	targetDataNodeIds := selectRandomDataNodes(dataNodesAvailable, replicationFactor)
 	nameNode.BlockToDataNodeIds[blockId] = targetDataNodeIds
@@ -202,7 +202,7 @@ func (nameNode *Service) assignDataNodes(blockId string, dataNodesAvailable []ui
 func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) error {
 	log.Printf("DataNode %s is dead, trying to redistribute data\n", request.DataNodeUri)
 	deadDataNodeSlice := strings.Split(request.DataNodeUri, ":")
-	var deadDataNodeId uint64
+	var deadDataNodeId string
 
 	// de-register the dead DataNode from IdToDataNodes meta
 	for id, dn := range nameNode.IdToDataNodes {
@@ -237,7 +237,7 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) erro
 		return nil
 	}
 
-	var availableNodes []uint64
+	var availableNodes []string
 	for k, _ := range nameNode.IdToDataNodes {
 		availableNodes = append(availableNodes, k)
 	}

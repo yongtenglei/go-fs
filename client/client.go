@@ -7,10 +7,10 @@ import (
 	"go-fs/pkg/util"
 	datanode_pb "go-fs/proto/datanode"
 	namenode_pb "go-fs/proto/namenode"
+	"os"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"log"
-	"os"
 )
 
 func Put(nameNodeConn *grpc.ClientConn, sourceFilePath string, destFilePath string) (putStatus bool) {
@@ -83,9 +83,7 @@ func Put(nameNodeConn *grpc.ClientConn, sourceFilePath string, destFilePath stri
 			Data:             string(dataStagingBytes),
 			ReplicationNodes: remainingPBDataNodes,
 		}
-		log.Println("+++++++++++++++++++++++++++++")
-		log.Println("blockid: ", blockId)
-		log.Println("+++++++++++++++++++++++++++++")
+
 		// 写入数据
 		putResponse, err := dataNodeInstance.Put(context.Background(), request)
 		util.Check(rpcErr)

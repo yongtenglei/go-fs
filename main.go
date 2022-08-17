@@ -7,7 +7,6 @@ import (
 	"go-fs/deamon/namenode"
 	"log"
 	"os"
-	"strings"
 )
 
 func main() {
@@ -19,7 +18,6 @@ func main() {
 	dataNodeDataLocationPtr := dataNodeCommand.String("data-location", ".", "DataNode data storage location")
 
 	nameNodePortPtr := nameNodeCommand.Int("port", 9000, "NameNode communication port")
-	nameNodeListPtr := nameNodeCommand.String("datanodes", "", "Comma-separated list of DataNodes to connect to")
 	nameNodeBlockSizePtr := nameNodeCommand.Int("block-size", 32, "Block size to store")
 	nameNodeReplicationFactorPtr := nameNodeCommand.Int("replication-factor", 1, "Replication factor of the system")
 
@@ -40,13 +38,7 @@ func main() {
 
 	case "namenode":
 		_ = nameNodeCommand.Parse(os.Args[2:])
-		var listOfDataNodes []string
-		if len(*nameNodeListPtr) > 1 {
-			listOfDataNodes = strings.Split(*nameNodeListPtr, ",")
-		} else {
-			listOfDataNodes = []string{}
-		}
-		namenode.InitializeNameNodeUtil(*nameNodePortPtr, *nameNodeBlockSizePtr, *nameNodeReplicationFactorPtr, listOfDataNodes)
+		namenode.InitializeNameNodeUtil(*nameNodePortPtr, *nameNodeBlockSizePtr, *nameNodeReplicationFactorPtr)
 
 	case "client":
 		_ = clientCommand.Parse(os.Args[2:])

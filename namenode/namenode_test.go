@@ -13,14 +13,14 @@ func TestNameNodeCreation(t *testing.T) {
 		BlockSize:          4,
 		ReplicationFactor:  2,
 		FileNameToBlocks:   make(map[string][]string),
-		IdToDataNodes:      make(map[uint64]util.DataNodeInstance),
-		BlockToDataNodeIds: make(map[string][]uint64),
+		IdToDataNodes:      make(map[string]util.DataNodeInstance),
+		BlockToDataNodeIds: make(map[string][]string),
 	}
 
 	testDataNodeInstance1 := util.DataNodeInstance{Host: "localhost", ServicePort: "1234"}
 	testDataNodeInstance2 := util.DataNodeInstance{Host: "localhost", ServicePort: "4321"}
-	testNameNodeService.IdToDataNodes[0] = testDataNodeInstance1
-	testNameNodeService.IdToDataNodes[1] = testDataNodeInstance2
+	testNameNodeService.IdToDataNodes["0"] = testDataNodeInstance1
+	testNameNodeService.IdToDataNodes["1"] = testDataNodeInstance2
 
 	if len(testNameNodeService.IdToDataNodes) != 2 || testNameNodeService.BlockSize != 4 || testNameNodeService.ReplicationFactor != 2 {
 		t.Errorf("Unable to initialize NameNode correctly; Expected: %d, %d, %d, found: %v, %d %d.", 2, 4, 2, testNameNodeService.IdToDataNodes, testNameNodeService.BlockSize, testNameNodeService.ReplicationFactor)
@@ -33,14 +33,14 @@ func TestNameNodeServiceWrite(t *testing.T) {
 		BlockSize:          4,
 		ReplicationFactor:  2,
 		FileNameToBlocks:   make(map[string][]string),
-		IdToDataNodes:      make(map[uint64]util.DataNodeInstance),
-		BlockToDataNodeIds: make(map[string][]uint64),
+		IdToDataNodes:      make(map[string]util.DataNodeInstance),
+		BlockToDataNodeIds: make(map[string][]string),
 	}
 
 	testDataNodeInstance1 := util.DataNodeInstance{Host: "localhost", ServicePort: "1234"}
 	testDataNodeInstance2 := util.DataNodeInstance{Host: "localhost", ServicePort: "4321"}
-	testNameNodeService.IdToDataNodes[0] = testDataNodeInstance1
-	testNameNodeService.IdToDataNodes[1] = testDataNodeInstance2
+	testNameNodeService.IdToDataNodes["0"] = testDataNodeInstance1
+	testNameNodeService.IdToDataNodes["1"] = testDataNodeInstance2
 
 	writeDataPayload := &namenode_pb.WriteRequest{
 		FileName: "foo",
