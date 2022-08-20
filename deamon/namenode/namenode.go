@@ -201,7 +201,8 @@ func SyncDataNodes(client *api.Client, nameNode *namenode.Service) {
 
 			// TODO: No any reaction if failing Re-distribute Data Now
 			err := nameNode.ReDistributeData(&namenode.ReDistributeDataRequest{DataNodeUri: hostPort})
-			panic(err)
+			util.Check(err)
+
 		}
 
 		log.Println("datanodes: ")
