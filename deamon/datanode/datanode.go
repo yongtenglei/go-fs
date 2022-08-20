@@ -3,8 +3,10 @@ package datanode
 import (
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"go-fs/datanode"
 	datanode_pb "go-fs/proto/datanode"
+	"go-fs/registration"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -17,6 +19,23 @@ import (
 )
 
 func InitializeDataNodeUtil(serverPort int, dataLocation string) {
+	// 注册到consul
+	register := registration.NewConsulRegister(
+		registration.ConsulHost,
+		registration.ConsulPort)
+
+	id := uuid.New().String()
+	err := register.RegisterCheckByGRPC(
+		"datanode",
+		id,
+		registration.MYIP,
+		serverPort,
+		[]string{"datanode"})
+	if err != nil {
+		log.Printf("Datanode register to Consul failed, err: %s", err.Error())
+		panic(err)
+	}
+
 	dataNodeInstance := new(datanode.Service)
 	dataNodeInstance.DataDirectory = dataLocation
 	dataNodeInstance.ServicePort = uint16(serverPort)
@@ -46,13 +65,18 @@ func InitializeDataNodeUtil(serverPort int, dataLocation string) {
 		}
 	}()
 
-	log.Println("DataNode daemon started on port: " + strconv.Itoa(serverPort-1))
+	log.Printf("DataNode daemon %s started on port: %s\n", id, strconv.Itoa(serverPort-1))
 
 	// graceful shutdown
 	sig := make(chan os.Signal)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGKILL)
 
 	<-sig
+
+	err = register.DeRegister(id)
+	if err != nil {
+		log.Printf("Datanode deregister from Consul failed, err: %s", err.Error())
+	}
 
 	server.GracefulStop()
 }

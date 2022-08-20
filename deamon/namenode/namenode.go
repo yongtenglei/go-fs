@@ -3,16 +3,19 @@ package namenode
 import (
 	"context"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/hashicorp/consul/api"
+	datanode_pb "go-fs/proto/datanode"
+	"go-fs/registration"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"go-fs/namenode"
 	"go-fs/pkg/util"
-	datanode_pb "go-fs/proto/datanode"
 	namenode_pb "go-fs/proto/namenode"
 	"log"
 	"net"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 
@@ -28,70 +31,65 @@ func removeElementFromSlice(elements []string, index int) []string {
 }
 
 // discoverDataNodes 发现 data node
-func discoverDataNodes(nameNodeInstance *namenode.Service, listOfDataNodes *[]string) error {
-	nameNodeInstance.IdToDataNodes = make(map[uint64]util.DataNodeInstance)
+func discoverDataNodes(nameNodeInstance *namenode.Service) error {
+	nameNodeInstance.IdToDataNodes = make(map[string]util.DataNodeInstance)
 
-	var i int
-	availableNumberOfDataNodes := len(*listOfDataNodes)
-	// 如果传入的data node 为空, 则在本地7000-7050的端口中发现data node.
-	if availableNumberOfDataNodes == 0 {
-		log.Printf("No DataNodes specified, discovering ...\n")
-
-		host := "localhost"
-		serverPort := 7000
-
-		pingRequest := &datanode_pb.PingRequest{
-			Host: host,
-			Port: uint32(serverPort),
-		}
-
-		for serverPort < 7050 {
-			dataNodeUri := host + ":" + strconv.Itoa(serverPort)
-			dataNodeConn, connErr := grpc.Dial(dataNodeUri, grpc.WithTransportCredentials(insecure.NewCredentials()))
-			defer dataNodeConn.Close()
-
-			dataNodeInstance := datanode_pb.NewDataNodeClient(dataNodeConn)
-			if connErr == nil {
-				*listOfDataNodes = append(*listOfDataNodes, dataNodeUri)
-				log.Printf("Discovered DataNode %s\n", dataNodeUri)
-
-				pingResponse, pingErr := dataNodeInstance.Ping(context.Background(), pingRequest)
-				util.Check(pingErr)
-				if pingResponse.Ack {
-					log.Printf("Ack received from %s\n", dataNodeUri)
-				} else {
-					log.Printf("No ack received from %s\n", dataNodeUri)
-				}
-			}
-			serverPort += 1
-		}
-
+	client, err := util.NewConsulClient(registration.ConsulHost, registration.ConsulPort)
+	if err != nil {
+		return nil
 	}
 
-	// 将有效的data node 添加到 name node 中
-	availableNumberOfDataNodes = len(*listOfDataNodes)
-	for i = 0; i < availableNumberOfDataNodes; i++ {
-		host, port, err := net.SplitHostPort((*listOfDataNodes)[i])
-		util.Check(err)
-		dataNodeInstance := util.DataNodeInstance{Host: host, ServicePort: port}
-		nameNodeInstance.IdToDataNodes[uint64(i)] = dataNodeInstance
+	namenodeServices, err := client.Agent().ServicesWithFilter("Service==`datanode`")
+	if err != nil {
+		return nil
+	}
+
+	for id, namenodeInfo := range namenodeServices {
+		log.Printf("Discovered DataNode %s, addr: %s:%d\n", id, namenodeInfo.Address, namenodeInfo.Port)
+		dataNodeInstance := util.DataNodeInstance{
+			Host:        namenodeInfo.Address,
+			ServicePort: strconv.Itoa(namenodeInfo.Port),
+		}
+		nameNodeInstance.IdToDataNodes[id] = dataNodeInstance
 	}
 
 	return nil
 }
 
-func InitializeNameNodeUtil(serverPort int, blockSize int, replicationFactor int, listOfDataNodes []string) {
+func InitializeNameNodeUtil(serverPort int, blockSize int, replicationFactor int) {
 	nameNodeInstance := namenode.NewService(uint64(blockSize), uint64(replicationFactor), uint16(serverPort))
 
-	err := discoverDataNodes(nameNodeInstance, &listOfDataNodes)
+	// 注册到consul
+	register := registration.NewConsulRegister(
+		registration.ConsulHost,
+		registration.ConsulPort)
+
+	id := uuid.New().String()
+	err := register.RegisterCheckByGRPC(
+		"namenode",
+		id,
+		registration.MYIP,
+		serverPort,
+		[]string{"namenode"})
+	if err != nil {
+		log.Printf("Namenode register to Consul failed, err: %s", err.Error())
+		panic(err)
+	}
+
+	err = discoverDataNodes(nameNodeInstance)
 	util.Check(err)
 
 	log.Printf("BlockSize is %d\n", blockSize)
 	log.Printf("Replication Factor is %d\n", replicationFactor)
-	log.Printf("List of DataNode(s) in service is %q\n", listOfDataNodes)
 	log.Printf("NameNode port is %d\n", serverPort)
 
-	go heartbeatToDataNodes(listOfDataNodes, nameNodeInstance)
+	client, err := util.NewConsulClient(registration.ConsulHost, registration.ConsulPort)
+	if err != nil {
+		panic(err)
+	}
+
+	go SyncDataNodes(client, nameNodeInstance)
+	go heartbeatToDataNodes(nameNodeInstance)
 
 	addr := ":" + strconv.Itoa(serverPort)
 
@@ -119,27 +117,32 @@ func InitializeNameNodeUtil(serverPort int, blockSize int, replicationFactor int
 
 	<-sig
 
+	err = register.DeRegister(id)
+	if err != nil {
+		log.Printf("Namenode deregister from Consul failed, err: %s", err.Error())
+	}
+
 	server.GracefulStop()
 
 }
 
-// heartbeatToDataNodes 每五秒钟, 进行健康检查
-func heartbeatToDataNodes(listOfDataNodes []string, nameNode *namenode.Service) {
+// heartbeatToDataNodes 每五秒钟, 进行健康检查, 主要负责迁移数据
+func heartbeatToDataNodes(nameNode *namenode.Service) {
 	// TODO: 连接池复用连接
 	//var dataNodeConn *grpc.ClientConn
 	//var connectionErr error
 
 	for range time.Tick(time.Second * 5) {
-		for i, hostPort := range listOfDataNodes {
+		for id, serviceInfo := range nameNode.IdToDataNodes {
+
+			hostPort := serviceInfo.Host + ":" + serviceInfo.ServicePort
 			dataNodeConn, connectionErr := grpc.Dial(hostPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
 
 			// 如果连接失败, 进行迁移
 			if connectionErr != nil {
-				log.Printf("Unable to connect to node %s\n", hostPort)
+				log.Printf("Unable to connect to node %s, address: %s\n", id, hostPort)
 				reDistributeError := nameNode.ReDistributeData(&namenode.ReDistributeDataRequest{DataNodeUri: hostPort})
 				util.Check(reDistributeError)
-				delete(nameNode.IdToDataNodes, uint64(i))
-				listOfDataNodes = removeElementFromSlice(listOfDataNodes, i)
 				continue
 			}
 
@@ -147,12 +150,107 @@ func heartbeatToDataNodes(listOfDataNodes []string, nameNode *namenode.Service) 
 			dataNodeClient := datanode_pb.NewDataNodeClient(dataNodeConn)
 			heartBeatResponse, hbErr := dataNodeClient.HeartBeat(context.Background(), &datanode_pb.HeartBeatRequest{Request: true})
 			if hbErr != nil || !heartBeatResponse.Success {
-				log.Printf("No heartbeat received from %s\n", hostPort)
+				log.Printf("No heartbeat received from %s, address: %s\n", id, hostPort)
 				reDistributeError := nameNode.ReDistributeData(&namenode.ReDistributeDataRequest{DataNodeUri: hostPort})
 				util.Check(reDistributeError)
-				delete(nameNode.IdToDataNodes, uint64(i))
-				listOfDataNodes = removeElementFromSlice(listOfDataNodes, i)
 			}
 		}
 	}
+}
+
+// SyncDataNodes  每一秒在consul获取并更新datanode信息， 主要负责维护datanode list
+func SyncDataNodes(client *api.Client, nameNode *namenode.Service) {
+	log.Printf("datanodes: %v\n", nameNode.IdToDataNodes)
+
+	// 每一秒连接一次consul
+	for range time.Tick(time.Second) {
+		namenodeServices, err := client.Agent().ServicesWithFilter("Service==`datanode`")
+		if err != nil {
+			continue
+		}
+
+		//log.Println("Sync name node")
+
+		if len(namenodeServices) == len(nameNode.IdToDataNodes) {
+			continue
+		}
+
+		// 存活的namenode数量与namenode记录的不相同, 则进行检查.
+		// 1. 在consul中存在, namenode不存在 -> 添加到namenode
+		diffs := ConsulDiffNameNode(nameNode.IdToDataNodes, namenodeServices)
+		for _, d := range diffs {
+			nameNode.IdToDataNodes[d] = util.DataNodeInstance{
+				Host:        namenodeServices[d].Address,
+				ServicePort: strconv.Itoa(namenodeServices[d].Port),
+			}
+			log.Println("Data Nodes changed! Added Data Node ", d)
+		}
+
+		// 2. namenode存在, 但是consul不存在 -> 删除namenode的记录 并迁移
+		diffs = NameNodeDiffConsul(namenodeServices, nameNode.IdToDataNodes)
+		for _, d := range diffs {
+			delete(nameNode.IdToDataNodes, d)
+			log.Println("Data Nodes changed! Remove Data Node ", d)
+
+			deprecatedNameNode, ok := nameNode.IdToDataNodes[d]
+			if !ok {
+				continue
+			}
+
+			hostPort := deprecatedNameNode.Host + ":" + deprecatedNameNode.ServicePort
+
+			// TODO: No any reaction if failing Re-distribute Data Now
+			err := nameNode.ReDistributeData(&namenode.ReDistributeDataRequest{DataNodeUri: hostPort})
+			util.Check(err)
+
+		}
+
+		log.Println("datanodes: ")
+		for id, info := range nameNode.IdToDataNodes {
+			log.Printf("\tid: %s, addr: %s:%s", id, info.Host, info.ServicePort)
+		}
+
+	}
+}
+
+// ConsulDiffNameNode output A-B
+func ConsulDiffNameNode(A map[string]util.DataNodeInstance, B map[string]*api.AgentService) []string {
+	d := make([]string, 0)
+
+	tmp := make(map[string]struct{})
+
+	for a := range A {
+		if _, ok := tmp[a]; !ok {
+			tmp[a] = struct{}{}
+		}
+	}
+
+	for b := range B {
+		if _, ok := tmp[b]; !ok {
+			d = append(d, b)
+		}
+	}
+
+	return d
+}
+
+// NameNodeDiffConsul output A-B
+func NameNodeDiffConsul(A map[string]*api.AgentService, B map[string]util.DataNodeInstance) []string {
+	d := make([]string, 0)
+
+	tmp := make(map[string]struct{})
+
+	for a := range A {
+		if _, ok := tmp[a]; !ok {
+			tmp[a] = struct{}{}
+		}
+	}
+
+	for b := range B {
+		if _, ok := tmp[b]; !ok {
+			d = append(d, b)
+		}
+	}
+
+	return d
 }

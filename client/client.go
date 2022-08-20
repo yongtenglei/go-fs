@@ -7,9 +7,10 @@ import (
 	"go-fs/pkg/util"
 	datanode_pb "go-fs/proto/datanode"
 	namenode_pb "go-fs/proto/namenode"
+	"os"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"os"
 )
 
 func Put(nameNodeConn *grpc.ClientConn, sourceFilePath string, destFilePath string) (putStatus bool) {
@@ -128,6 +129,7 @@ func Get(nameNodeConn *grpc.ClientConn, sourceFilePath string) (fileContents str
 
 			request := &datanode_pb.GetRequest{
 				FilePath: sourceFilePath,
+				BlockId:  metaData.BlockId,
 			}
 
 			// 读数据
@@ -152,4 +154,8 @@ func Get(nameNodeConn *grpc.ClientConn, sourceFilePath string) (fileContents str
 	// 所有block被拿到, 返回文件成功get到
 	getStatus = true
 	return
+}
+
+func Stat(nameNodeConn *grpc.ClientConn, destFilePath string) (stats string, statStatus bool) {
+	return "", true
 }

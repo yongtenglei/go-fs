@@ -1,8 +1,12 @@
 package util
 
 import (
+	"fmt"
+	"github.com/hashicorp/consul/api"
 	"log"
 	"os"
+	"path"
+	"strings"
 )
 
 type DataNodeInstance struct {
@@ -49,4 +53,26 @@ func PathExist(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err //如果有错误了，但是不是不存在的错误，所以把这个错误原封不动的返回
+}
+
+func SplitFileNameAndExt(fileName string) (name, ext string) {
+	ext = path.Ext(fileName)
+
+	name = strings.TrimSuffix(fileName, ext)
+
+	return
+}
+
+func NewConsulClient(host string, port int) (*api.Client, error) {
+	// 创建consul地址的的客户端
+	defaultConfig := api.DefaultConfig()
+	defaultConfig.Address = fmt.Sprintf("%s:%d", host, port)
+
+	// 创建consul地址的的客户端
+	client, err := api.NewClient(defaultConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return client, nil
 }

@@ -125,7 +125,10 @@ func (dn *Service) Put(ctx context.Context, req *datanode_pb.PutRequest) (*datan
 		util.Check(err)
 	}
 
-	fileWriteHandler, err := os.Create(path.Join(filePath, fileName))
+	name, ext := util.SplitFileNameAndExt(fileName)
+	finalName := name + req.BlockId + ext
+
+	fileWriteHandler, err := os.Create(path.Join(filePath, finalName))
 	util.Check(err)
 	defer fileWriteHandler.Close()
 
@@ -148,14 +151,18 @@ func (dn *Service) Get(ctx context.Context, req *datanode_pb.GetRequest) (*datan
 
 	filePath := path.Join(dn.DataDirectory, req.FilePath)
 
-	filePathExist, err := util.PathExist(filePath)
+	pathWithoutExt, ext := util.SplitFileNameAndExt(filePath)
+
+	finalPath := pathWithoutExt + req.BlockId + ext
+
+	filePathExist, err := util.PathExist(finalPath)
 	util.Check(err)
 
 	if !filePathExist {
 		return nil, e.ErrFileDoesNotExist
 	}
 
-	dataBytes, err := ioutil.ReadFile(filePath)
+	dataBytes, err := ioutil.ReadFile(finalPath)
 	util.Check(err)
 
 	res.Data = string(dataBytes)

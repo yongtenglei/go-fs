@@ -1,15 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"go-fs/deamon/client"
 	"go-fs/deamon/datanode"
 	"go-fs/deamon/namenode"
-	"go-fs/pkg/util"
 	"log"
 	"os"
-	"strings"
 )
 
 func main() {
@@ -21,14 +18,13 @@ func main() {
 	dataNodeDataLocationPtr := dataNodeCommand.String("data-location", ".", "DataNode data storage location")
 
 	nameNodePortPtr := nameNodeCommand.Int("port", 9000, "NameNode communication port")
-	nameNodeListPtr := nameNodeCommand.String("datanodes", "", "Comma-separated list of DataNodes to connect to")
 	nameNodeBlockSizePtr := nameNodeCommand.Int("block-size", 32, "Block size to store")
 	nameNodeReplicationFactorPtr := nameNodeCommand.Int("replication-factor", 1, "Replication factor of the system")
 
-	clientNameNodePortPtr := clientCommand.String("namenode", "localhost:9000", "NameNode communication port")
-	clientOperationPtr := clientCommand.String("operation", "", "Operation to perform")
+	clientNameNodePortPtr := clientCommand.String("namenode", "localhost:9000", "NameNode communication port\n\t required: ALL")
+	clientOperationPtr := clientCommand.String("operation", "", "Operation to perform\n\t required: ALL")
 	clientSourceFilePathPtr := clientCommand.String("source-file-path", "", "Source path of the file\n\t required: GET, PUT")
-	clientDestFilePathPtr := clientCommand.String("dest-file-path", "", "Destination path of the file\n\t required: GET, PUT")
+	clientDestFilePathPtr := clientCommand.String("dest-file-path", "", "Destination path of the file\n\t required: GET, PUT, STAT")
 
 	if len(os.Args) < 2 {
 		log.Println("sub-command is required")
@@ -42,45 +38,43 @@ func main() {
 
 	case "namenode":
 		_ = nameNodeCommand.Parse(os.Args[2:])
-		var listOfDataNodes []string
-		if len(*nameNodeListPtr) > 1 {
-			listOfDataNodes = strings.Split(*nameNodeListPtr, ",")
-		} else {
-			listOfDataNodes = []string{}
-		}
-		namenode.InitializeNameNodeUtil(*nameNodePortPtr, *nameNodeBlockSizePtr, *nameNodeReplicationFactorPtr, listOfDataNodes)
+		namenode.InitializeNameNodeUtil(*nameNodePortPtr, *nameNodeBlockSizePtr, *nameNodeReplicationFactorPtr)
 
 	case "client":
 		_ = clientCommand.Parse(os.Args[2:])
 
-		if *clientOperationPtr == "put" {
+		switch {
+		// put
+		case *clientOperationPtr == "put":
 			if *clientNameNodePortPtr == "" || *clientSourceFilePathPtr == "" || *clientDestFilePathPtr == "" {
 				log.Println("Need required arguments, use \"go-fs client -help\" for more details")
 				return
 			}
-			status := client.PutHandler(*clientNameNodePortPtr, *clientSourceFilePathPtr, *clientDestFilePathPtr)
+			status := client.HandlePutOperation(*clientNameNodePortPtr, *clientSourceFilePathPtr, *clientDestFilePathPtr)
 			log.Printf("Put status: %t\n", status)
 
-		} else if *clientOperationPtr == "get" {
+		// get
+		case *clientOperationPtr == "get":
 			if *clientNameNodePortPtr == "" || *clientSourceFilePathPtr == "" || *clientDestFilePathPtr == "" {
 				log.Println("Need required arguments, use \"go-fs client -help\" for more details")
 				return
 			}
-			contents, status := client.GetHandler(*clientNameNodePortPtr, *clientSourceFilePathPtr)
+			status := client.HandleGetOperation(*clientNameNodePortPtr, *clientSourceFilePathPtr, *clientDestFilePathPtr)
 			log.Printf("Get status: %t\n", status)
 			if !status {
 				log.Println("Please check remote file path")
 				return
 			}
-			log.Println(contents)
-			fileWriteHandler, err := os.Create(*clientDestFilePathPtr)
-			util.Check(err)
-			defer fileWriteHandler.Close()
 
-			fileWriter := bufio.NewWriter(fileWriteHandler)
-			_, err = fileWriter.WriteString(contents)
-			util.Check(err)
-			fileWriter.Flush()
+		// stat
+		case *clientOperationPtr == "stat":
+			if *clientNameNodePortPtr == "" || *clientDestFilePathPtr == "" {
+				log.Println("Need required arguments, use \"go-fs client -help\" for more details")
+				return
+			}
+
+			client.HandleStatOperation(*clientNameNodePortPtr, *clientDestFilePathPtr)
+
 		}
 	}
 }

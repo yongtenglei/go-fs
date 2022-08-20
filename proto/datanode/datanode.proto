@@ -46,6 +46,8 @@ message PutResponse {
 
 message GetRequest {
   string filePath = 1;
+  string blockId = 2;
+
 }
 
 message GetResponse {
