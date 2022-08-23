@@ -89,7 +89,7 @@ func InitializeNameNodeUtil(serverPort int, blockSize int, replicationFactor int
 	}
 
 	go SyncDataNodes(client, nameNodeInstance)
-	go heartbeatToDataNodes(nameNodeInstance)
+	//go heartbeatToDataNodes(nameNodeInstance)
 
 	addr := ":" + strconv.Itoa(serverPort)
 
@@ -189,18 +189,18 @@ func SyncDataNodes(client *api.Client, nameNode *namenode.Service) {
 		// 2. namenode存在, 但是consul不存在 -> 删除namenode的记录 并迁移
 		diffs = NameNodeDiffConsul(namenodeServices, nameNode.IdToDataNodes)
 		for _, d := range diffs {
-			delete(nameNode.IdToDataNodes, d)
-			log.Println("Data Nodes changed! Remove Data Node ", d)
-
 			deprecatedNameNode, ok := nameNode.IdToDataNodes[d]
 			if !ok {
 				continue
 			}
 
+			delete(nameNode.IdToDataNodes, d)
+			log.Println("Data Nodes changed! Remove Data Node ", d)
+
 			hostPort := deprecatedNameNode.Host + ":" + deprecatedNameNode.ServicePort
 
 			// TODO: No any reaction if failing Re-distribute Data Now
-			err := nameNode.ReDistributeData(&namenode.ReDistributeDataRequest{DataNodeUri: hostPort})
+			err := nameNode.ReDistributeData(&namenode.ReDistributeDataRequest{DataNodeUri: hostPort, DataNodeId: d})
 			util.Check(err)
 
 		}
