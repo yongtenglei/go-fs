@@ -6,13 +6,12 @@ import (
 	"go-fs/pkg/util"
 	datanode_pb "go-fs/proto/datanode"
 	namenode_pb "go-fs/proto/namenode"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"log"
 	"math"
 	"math/rand"
-
-	"strings"
 
 	"github.com/google/uuid"
 )
@@ -33,6 +32,7 @@ type NameNodeWriteRequest struct {
 
 type ReDistributeDataRequest struct {
 	DataNodeUri string
+	DataNodeId  string
 }
 
 type UnderReplicatedBlocks struct {
@@ -201,17 +201,19 @@ func (nameNode *Service) assignDataNodes(blockId string, dataNodesAvailable []st
 
 func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) error {
 	log.Printf("DataNode %s is dead, trying to redistribute data\n", request.DataNodeUri)
-	deadDataNodeSlice := strings.Split(request.DataNodeUri, ":")
-	var deadDataNodeId string
+	var deadDataNodeId = request.DataNodeId
 
 	// de-register the dead DataNode from IdToDataNodes meta
-	for id, dn := range nameNode.IdToDataNodes {
-		if dn.Host == deadDataNodeSlice[0] && dn.ServicePort == deadDataNodeSlice[1] {
-			deadDataNodeId = id
-			break
-		}
-	}
+	//for id, dn := range nameNode.IdToDataNodes {
+	//	if dn.Host == deadDataNodeSlice[0] && dn.ServicePort == deadDataNodeSlice[1] {
+	//		deadDataNodeId = id
+	//		break
+	//	}
+	//}
+	// it's safe, if delete twice
 	delete(nameNode.IdToDataNodes, deadDataNodeId)
+
+	zap.S().Infof("DeadNode Id: %s", deadDataNodeId)
 
 	// construct under-replicated blocks list and
 	// de-register the block entirely in favour of re-creation
@@ -233,7 +235,7 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) erro
 
 	// verify if re-replication would be possible
 	if len(nameNode.IdToDataNodes) < int(nameNode.ReplicationFactor) {
-		log.Println("Replication not possible due to unavailability of sufficient DataNode(s)")
+		zap.L().Info("Replication not possible due to unavailability of sufficient DataNode(s)")
 		return nil
 	}
 
@@ -251,7 +253,6 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) erro
 			healthyDataNode.Host+":"+healthyDataNode.ServicePort,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		)
-		defer dataNodeConn.Close()
 		if rpcErr != nil {
 			continue
 		}
@@ -260,28 +261,23 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) erro
 
 		// 找到要迁移的block的文件路径
 		var filePath string
-		var foundFilePath bool
 
 		for fp, blockIds := range nameNode.FileNameToBlocks {
 			for _, blockId := range blockIds {
 				if blockToReplicate.BlockId == blockId {
 					filePath = fp
-					foundFilePath = true
 					break
 				}
 			}
 
-			if foundFilePath {
-				log.Println("filename2blocks: ", nameNode.FileNameToBlocks)
-				log.Println("foundFilePath: ", filePath)
-				break
-			} else {
-				log.Println("Cannot found filePath for a UnderReplicatedBlock, reDistributeData failed")
-			}
+			zap.L().Error("Cannot found filePath for a UnderReplicatedBlock, may cause data un-consistency")
 		}
 
+		zap.S().Infoln("filename2blocks: ", nameNode.FileNameToBlocks)
+		zap.S().Infoln("foundFilePath: ", filePath)
+
 		getRequest := &datanode_pb.GetRequest{
-			//BlockId: blockToReplicate.BlockId,
+			BlockId:  blockToReplicate.BlockId,
 			FilePath: filePath,
 		}
 
@@ -302,7 +298,6 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) erro
 			startingDataNode.Host+":"+startingDataNode.ServicePort,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 		)
-		defer targetDataNodeConn.Close()
 		util.Check(rpcErr)
 
 		targetDataNodeInstance := datanode_pb.NewDataNodeClient(targetDataNodeConn)
@@ -316,6 +311,7 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) erro
 			FilePath:         filePath,
 			Data:             blockContents,
 			ReplicationNodes: remainingPBDataNodes,
+			BlockId:          blockToReplicate.BlockId,
 		}
 
 		putResponse, rpcErr := targetDataNodeInstance.Put(context.Background(), putRequest)
@@ -323,10 +319,11 @@ func (nameNode *Service) ReDistributeData(request *ReDistributeDataRequest) erro
 
 		// TODO: 不成功需要有一定措施
 		if !putResponse.Success {
-			log.Printf("Block %s replication completed for %+v filied\n", blockToReplicate.BlockId, targetDataNodeIds)
+			zap.S().Errorf("Block %s replication completed for %+v filied\n", blockToReplicate.BlockId, targetDataNodeIds)
+		} else {
+			zap.S().Infof("Block %s replication completed for %+v\n", blockToReplicate.BlockId, targetDataNodeIds)
 		}
 
-		log.Printf("Block %s replication completed for %+v\n", blockToReplicate.BlockId, targetDataNodeIds)
 	}
 
 	return nil
