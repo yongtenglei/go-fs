@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/uuid"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/hashicorp/consul/api"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	datanode_pb "go-fs/proto/datanode"
 	"go-fs/registration"
 	"google.golang.org/grpc/credentials/insecure"
+	"net/http"
 
 	"go-fs/namenode"
 	"go-fs/pkg/util"
@@ -97,10 +101,42 @@ func InitializeNameNodeUtil(serverPort int, blockSize int, replicationFactor int
 	defer listener.Close()
 	util.Check(err)
 
-	server := grpc.NewServer()
+	// 注册prometheus
+	// Create a metrics registry.
+	prometheusReg := prometheus.NewRegistry()
+	// Create some standard server metrics.
+	grpcMetrics := grpc_prometheus.NewServerMetrics()
+	// Register standard server metrics to registry.
+	prometheusReg.MustRegister(grpcMetrics)
+
+	server := grpc.NewServer(
+		grpc.StreamInterceptor(grpcMetrics.StreamServerInterceptor()),
+		grpc.UnaryInterceptor(grpcMetrics.UnaryServerInterceptor()),
+	)
+
+	// Create a HTTP server for prometheus.
+	httpServer := &http.Server{
+		Handler: promhttp.HandlerFor(
+			prometheusReg,
+			promhttp.HandlerOpts{},
+		),
+		// TODO: HARD CODING
+		Addr: ":9092",
+	}
+
 	namenode_pb.RegisterNameNodeServiceServer(server, nameNodeInstance)
 
 	grpc_health_v1.RegisterHealthServer(server, health.NewServer())
+
+	// Initialize all metrics.
+	grpcMetrics.InitializeMetrics(server)
+
+	// Start your http server for prometheus.
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil {
+			log.Fatal("Unable to start a http server.")
+		}
+	}()
 
 	go func() {
 		if err := server.Serve(listener); err != nil {

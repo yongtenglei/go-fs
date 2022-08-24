@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go-fs/datanode"
 	datanode_pb "go-fs/proto/datanode"
 	"go-fs/registration"
@@ -12,6 +15,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -57,6 +61,31 @@ func InitializeDataNodeUtil(serverPort int, dataLocation string) {
 	}
 	log.Printf("DataNode port is %d\n", serverPort-1)
 	defer listener.Close()
+
+	// 注册prometheus
+	// Create a metrics registry.
+	reg := prometheus.NewRegistry()
+	// Create some standard client metrics.
+	grpcMetrics := grpc_prometheus.NewClientMetrics()
+	// Register client metrics to registry.
+	reg.MustRegister(grpcMetrics)
+	// Create  insecure gRPC channel to communicate with the server.
+
+	// Create  HTTP server for prometheus.
+	httpServer := &http.Server{
+		Handler: promhttp.HandlerFor(
+			reg,
+			promhttp.HandlerOpts{}),
+		// TODO: HARD CODING
+		Addr: ":9094",
+	}
+
+	// Start http server for prometheus.
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil {
+			log.Fatal("Unable to start a http server.")
+		}
+	}()
 
 	go func() {
 		if err := server.Serve(listener); err != nil {
